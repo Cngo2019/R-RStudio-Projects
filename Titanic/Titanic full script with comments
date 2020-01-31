@@ -1,0 +1,136 @@
+library(ggplot2)
+library(dplyr)
+library(randomForest)
+
+#the titanicDataTest and titanicData sets are the ones we will be using as submission
+test<-read.csv("test.csv")
+titanicData <- read.csv("train.csv")
+titanicDataTest <- read.csv("test.csv")
+
+
+titanicSurvivorOnly <- subset(titanicData,titanicData$Survived == 1)
+titanicDeceasedOnly <- subset(titanicData,titanicData$Survived == 0)
+mean(titanicDeceasedOnly$Age,na.rm=TRUE) #Average age for deceased: 30.6
+sd(titanicDeceasedOnly$Age,na.rm=TRUE) #Standard deviation: 14.17
+
+mean(titanicSurvivorOnly$Age,na.rm=TRUE) #Average age for survivors: 28.34
+sd(titanicSurvivorOnly$Age,na.rm=TRUE) #Standard deviation: 14.95
+
+#Observation by sex
+titanicMale <- subset(titanicData,titanicData$Sex == "male")
+maleDeath <- 577-sum(titanicMale$Survived)
+maleDeath #468 males died
+
+titanicFemale <- subset(titanicData,titanicData$Sex == "female")
+femaleDeath <- 314-sum(titanicFemale$Survived)
+femaleDeath #81 females died
+
+
+
+          ###GRAPHICAL ANALYSIS SECTION###
+
+#Let us consider where they embarked and if it affected their survival rate.
+ggplot(data = titanicData, mapping = aes( x = titanicData$Survived)) +
+  geom_bar(aes(fill = Embarked))+
+  xlab("SURVIVAL")+
+  ylab("NUMBER OF PEOPLE")
+
+#Let us consider the Pclass and if it affected their survival rate.
+ggplot(data = titanicData, mapping = aes( x = titanicData$Pclass)) +
+  geom_bar(aes(fill = as.factor(Survived))) +
+  xlab("PCLASS")+
+  ylab("NUMBER OF PEOPLE")
+
+#Majority of deaths occurred in PClass 3. 
+mean(titanicSurvivorOnly$Fare, na.rm = TRUE) #On average, people with fares around $48.39541 were more likely to survive
+mean(titanicDeceasedOnly$Fare, na.rm = TRUE) #On average, people with fres $22.11789 are more likely to die
+sd(titanicDeceasedOnly$Fare, na.rm = TRUE)
+sd(titanicSurvivorOnly$Fare, na.rm = TRUE)
+
+#Lets try and plot fare and its survival (BAR PLOT)
+ggplot(data = titanicData, mapping = aes( x = titanicData$Fare)) +
+  geom_histogram(aes(fill = as.factor(Survived)))+
+  xlab("FARE")+
+  ylab("COUNT")+
+  ggtitle("LOWER FARES CORRELATE TO MORE DEATHS")
+  
+#Consider the average fare vs whether they survived or not. higher fare means higher survival rate
+  aggregate(Fare ~ Survived + as.factor(Pclass), data = titanicData, mean)
+
+#Let us conider the sex vs survival
+ggplot(data = titanicData, mapping = aes( x = titanicData$Survived)) +
+  geom_bar(aes(fill = Sex))+
+  xlab("SURVIVAL")+
+  ylab("NUMBER OF PEOPLE")+
+  ggtitle("MALES MORE LIKELY TO DIE")
+  
+
+#Let us consider the ages
+ggplot(data = titanicData, mapping = aes( x = titanicData$Pclass, y = titanicData$Age)) +
+  geom_jitter(aes(color = as.factor(Survived)))+
+  xlab("Pclass")+
+  ylab("AGE RANGE")+
+  ggtitle("Elderly people, usually above age 30 and in Pclass 1, were more likely to die.")
+  
+  #Lets create a comparison via average age
+  aggregate(Age ~ Survived + as.factor(Pclass), data = titanicData, mean)
+  # the older you are, the more likely you ar to die for all Pclasses
+  
+  
+#Let us consider the Parch variable
+ggplot(data = titanicData, mapping = aes( x = titanicData$Parch, y = titanicData$Pclass)) +
+  geom_jitter(aes(color = as.factor(Survived)))+
+  xlab("Parch")+
+  ylab("Pclass")
+  ggtitle("Majority of deaths occurred with Parch == 0. As Parch goes to 4, 5, 6, there are less survivors")
+
+#Let us consider the embarked variable to see if it had an affect on their survival
+ggplot(data = titanicData, mapping = aes( x = titanicData$Embarked, y = titanicData$Pclass)) +
+    geom_jitter(aes(color = as.factor(Survived)))+
+    xlab("PEmbarked")+
+    ylab("Pclass")
+#More deaths occurred in the S Class than C or Q.
+
+#Conclusions thus far:
+#More likely to die: Male, lower ticket fare, PClass = 3, Higher age, Parch 4  , 5 , or 6, Embarked in category S.
+
+    ###CHANGING DATA INTO FACTORS###
+
+#Lets change some variables into factors to make it easier for us.
+#To turn into factors: Sex, PClass, Parch, Embarked
+#Combine the test data and training data together
+titanicDataTest$Survived <- NA
+titanicDataFull <-rbind(titanicData,titanicDataTest)
+
+#Convert categorical data into factors
+titanicDataFull$Sex <- as.factor(titanicDataFull$Sex)
+titanicDataFull$Parch <-as.factor(titanicDataFull$Parch)
+titanicDataFull$Embarked <- as.factor(titanicDataFull$Embarked)
+titanicDataFull$Survived<- as.factor(titanicDataFull$Survived)
+
+titanicDataTest$Survived <- as.factor(titanicDataTest$Survived)
+
+#Our test data set now has a survived column
+titanicDataTest <- subset(titanicDataFull, PassengerId >= 892)
+titanicData <- subset(titanicDataFull, PassengerId < 892)
+
+  ###PREDICTING SURVIVAL###
+#Fill in NA values as averages for that specific column
+
+titanicDataTest$Age[is.na(titanicDataTest$Age)] = mean(titanicDataFull$Age,na.rm = TRUE)
+titanicDataTest$Fare[is.na(titanicDataTest$Fare)] = mean(titanicDataFull$Fare,na.rm = TRUE)
+
+#I replaced the NA values with the mean age for the entire set
+#I repaced the NA values for the Fare with the mean fare for the entire set
+#This helps create the model without any NA errors
+titanicData$Age[is.na(titanicData$Age)] = mean(titanicDataFull$Age,na.rm = TRUE)
+titanicData$Fare[is.na(titanicData$Fare)] = mean(titanicDataFull$Fare,na.rm = TRUE)
+
+myModel <- randomForest (Survived ~ Pclass + Age + Sex + Fare + Embarked, data = titanicData)
+
+titanicDataTest$Survived <- predict(myModel, newdata = titanicDataTest)
+
+submission <- data.frame(titanicDataTest$Survived,titanicDataTest$PassengerId)
+
+#Accuracy for this model by filling in the NA age values for mean(age): 77%
+
